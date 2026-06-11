@@ -275,6 +275,8 @@ async function seed() {
   const c8 = await createCompany(8, { name: "当月増額", leadDate: d("2097-12-03"), leadValidity: "有効", currentStageId: m.wonStageId, leadSourceId: m.sourceAId, salesStaffId: m.staffAId });
   const c9 = await createCompany(9, { name: "翌月対象外", leadDate: d("2098-02-01"), leadValidity: "有効", currentStageId: m.wonStageId, leadSourceId: m.sourceAId, salesStaffId: m.staffAId });
   const c10 = await createCompany(10, { name: "当月減額", leadDate: d("2097-12-04"), leadValidity: "有効", currentStageId: m.wonStageId, leadSourceId: m.sourceAId, salesStaffId: m.staffAId });
+  const c11 = await createCompany(11, { name: "前月リード当月失注", leadDate: d("2097-12-05"), leadValidity: "有効", currentStageId: m.lostStageId, leadSourceId: m.sourceBId, salesStaffId: m.staffBId, lostReasonOptionId: m.lostReasonId });
+  const c12 = await createCompany(12, { name: "当月再失注", leadDate: d("2097-12-06"), leadValidity: "有効", currentStageId: m.lostStageId, leadSourceId: m.sourceBId, salesStaffId: m.staffBId, lostReasonOptionId: m.lostReasonId });
 
   await Promise.all([
     addContact(c1.master.id, m.staffAId, d("2098-01-07"), true),
@@ -286,6 +288,10 @@ async function seed() {
     addStage(c2.stpCompany.id, m.progressStageId, d("2098-01-08")),
     addStage(c2.stpCompany.id, m.pendingStageId, d("2098-01-14")),
     addStage(c4.stpCompany.id, m.lostStageId, d("2098-01-18"), "lost", m.lostReasonId),
+    addStage(c11.stpCompany.id, m.lostStageId, d("2098-01-19"), "lost", m.lostReasonId),
+    addStage(c12.stpCompany.id, m.lostStageId, d("2097-12-20"), "lost", m.lostReasonId),
+    addStage(c12.stpCompany.id, m.progressStageId, d("2097-12-28"), "revived"),
+    addStage(c12.stpCompany.id, m.lostStageId, d("2098-01-20"), "lost", m.lostReasonId),
   ]);
 
   await Promise.all([
@@ -391,7 +397,7 @@ function buildReport(checks: Check[]) {
 - 商材: \`${PREFIX}売却検証商材\`
 - チャネル: \`${PREFIX}Web広告\`, \`${PREFIX}紹介\`
 - 担当者: \`${PREFIX}営業A\`, \`${PREFIX}営業B\`
-- 含めた状態: リードのみ、有効リード、無効リード、商談済み、検討中、契約済み、失注、月跨ぎ契約、増額、減額、解約、目標あり、0件/分母0確認用の対象外月
+- 含めた状態: リードのみ、有効リード、無効リード、商談済み、検討中、契約済み、失注、前月リード当月失注、再失注、月跨ぎ契約、増額、減額、解約、目標あり、0件/分母0確認用の対象外月
 
 ## 実装上の主な計算ロジック
 | ダッシュボード | 指標 | コード上の計算 |
@@ -400,7 +406,7 @@ function buildReport(checks: Check[]) {
 | MA・SFA・契約ファネル | 有効リード数 | 対象期間内リードのうち \`leadValidity === "有効"\` |
 | MA・SFA・契約ファネル | 商談数 | 初回接触履歴が \`contactCategory.name === "商談"\` かつ対象期間内 |
 | MA・SFA・契約ファネル | 契約数 | 初回 \`StpContractHistory.contractDate\` が対象期間内 |
-| MA・SFA・契約ファネル | 失注数 | 初回 \`StpStageHistory.eventType === "lost"\` が対象期間内 |
+| MA・SFA・契約ファネル | 失注数 | 最新 \`StpStageHistory.eventType === "lost"\` が対象期間内 |
 | チャネル分析 | チャネル別数値 | 対象期間内リードを \`StpLeadSource\` ごとに集計 |
 | 案件管理 | 未完了案件 | 現在ステージが \`closed_lost\` / \`completed\` 以外 |
 | 売却KPI | 現在MRR | 対象月末時点で有効なactive契約の月額合計 |
@@ -448,8 +454,12 @@ async function verify() {
     },
     include: { company: true, currentStage: true, leadSource: true },
   });
+  const allTestCompanies = await prisma.stpCompany.findMany({
+    where: { company: { companyCode: { startsWith: PREFIX } } },
+    include: { company: true, currentStage: true },
+  });
   const scopedCompanyIds = scopedCompanies.map((company) => company.companyId);
-  const scopedStpCompanyIds = scopedCompanies.map((company) => company.id);
+  const allTestStpCompanyIds = allTestCompanies.map((company) => company.id);
   const meetings = await prisma.contactHistory.findMany({
     where: {
       companyId: { in: scopedCompanyIds },
@@ -472,14 +482,24 @@ async function verify() {
   const contractCompanyIds = new Set(contractsInMonth.map((contract) => contract.companyId));
   const lostHistories = await prisma.stpStageHistory.findMany({
     where: {
-      stpCompanyId: { in: scopedStpCompanyIds },
+      stpCompanyId: { in: allTestStpCompanyIds },
       eventType: "lost",
       isVoided: false,
-      recordedAt: { gte: monthStart, lte: monthEnd },
     },
-    select: { stpCompanyId: true },
+    select: { stpCompanyId: true, recordedAt: true },
+    orderBy: [{ recordedAt: "desc" }, { id: "desc" }],
   });
-  const lostStpCompanyIds = new Set(lostHistories.map((history) => history.stpCompanyId));
+  const latestLostByStpCompanyId = new Map<number, Date>();
+  for (const history of lostHistories) {
+    if (!latestLostByStpCompanyId.has(history.stpCompanyId)) {
+      latestLostByStpCompanyId.set(history.stpCompanyId, history.recordedAt);
+    }
+  }
+  const lostStpCompanyIds = new Set(
+    [...latestLostByStpCompanyId.entries()]
+      .filter(([, recordedAt]) => recordedAt >= monthStart && recordedAt <= monthEnd)
+      .map(([stpCompanyId]) => stpCompanyId)
+  );
   const validCompanies = scopedCompanies.filter((company) => company.leadValidity === "有効");
   const validitySetCompanies = scopedCompanies.filter((company) => company.leadValidity === "有効" || company.leadValidity === "無効");
 
@@ -488,12 +508,13 @@ async function verify() {
   check(checks, "MA・SFA・契約ファネル", "商談数", 2, meetingCompanyIds.size);
   check(checks, "MA・SFA・契約ファネル", "検討中数", 1, scopedCompanies.filter((company) => company.currentStage?.stageType === "pending").length);
   check(checks, "MA・SFA・契約ファネル", "契約数", 1, contractCompanyIds.size);
-  check(checks, "MA・SFA・契約ファネル", "失注数", 1, lostStpCompanyIds.size);
+  check(checks, "MA・SFA・契約ファネル", "失注数", 3, lostStpCompanyIds.size);
   check(checks, "MA・SFA・契約ファネル", "有効率", 75, round1((validCompanies.length / validitySetCompanies.length) * 100));
   check(checks, "MA・SFA・契約ファネル", "商談化率", 40, round1((meetingCompanyIds.size / scopedCompanies.length) * 100));
   check(checks, "MA・SFA・契約ファネル", "有効リード契約率", 33.3, round1((contractCompanyIds.size / validCompanies.length) * 100));
   check(checks, "MA・SFA・契約ファネル", "月別リード数", 5, scopedCompanies.length);
   check(checks, "MA・SFA・契約ファネル", "月別契約数", 1, contractCompanyIds.size);
+  check(checks, "MA・SFA・契約ファネル", "リード発生月別失注数", 1, scopedCompanies.filter((company) => company.currentStage?.stageType === "closed_lost").length);
 
   const acquiredMrr = contractsInMonth
     .filter((contract) => validCompanies.some((company) => company.companyId === contract.companyId))

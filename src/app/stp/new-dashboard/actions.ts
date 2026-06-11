@@ -119,12 +119,18 @@ type StageInfo = {
   stageType: string;
 };
 
+type LostEvent = {
+  recordedAt: Date;
+  lostReason: string | null;
+  lostReasonOptionName: string | null;
+};
+
 type EventMaps = {
   firstMeetingByCompanyId: Map<number, Date>;
   latestContactByCompanyId: Map<number, Date>;
   firstContractByCompanyId: Map<number, Date>;
   firstContractValueByCompanyId: Map<number, ContractValue>;
-  firstLostByStpCompanyId: Map<number, { recordedAt: Date }>;
+  latestLostByStpCompanyId: Map<number, LostEvent>;
   firstStageEntryByCompanyId: Map<number, Map<number, Date>>;
 };
 
@@ -411,8 +417,10 @@ async function getEventMaps(companies: StpCompanyRecord[]): Promise<EventMaps> {
       select: {
         stpCompanyId: true,
         recordedAt: true,
+        lostReason: true,
+        lostReasonOption: { select: { name: true } },
       },
-      orderBy: { recordedAt: "asc" },
+      orderBy: [{ recordedAt: "desc" }, { id: "desc" }],
     }),
     prisma.stpStageHistory.findMany({
       where: {
@@ -457,11 +465,13 @@ async function getEventMaps(companies: StpCompanyRecord[]): Promise<EventMaps> {
     }
   }
 
-  const firstLostByStpCompanyId = new Map<number, { recordedAt: Date }>();
+  const latestLostByStpCompanyId = new Map<number, LostEvent>();
   for (const history of lostHistories) {
-    if (!firstLostByStpCompanyId.has(history.stpCompanyId)) {
-      firstLostByStpCompanyId.set(history.stpCompanyId, {
+    if (!latestLostByStpCompanyId.has(history.stpCompanyId)) {
+      latestLostByStpCompanyId.set(history.stpCompanyId, {
         recordedAt: history.recordedAt,
+        lostReason: history.lostReason,
+        lostReasonOptionName: history.lostReasonOption?.name ?? null,
       });
     }
   }
@@ -483,7 +493,7 @@ async function getEventMaps(companies: StpCompanyRecord[]): Promise<EventMaps> {
     latestContactByCompanyId,
     firstContractByCompanyId,
     firstContractValueByCompanyId,
-    firstLostByStpCompanyId,
+    latestLostByStpCompanyId,
     firstStageEntryByCompanyId,
   };
 }
@@ -510,8 +520,8 @@ function buildCurrentResult({
   const pendingCount = scopeCompanies.filter((company) => company.currentStage?.stageType === "pending").length;
   const contractCompanies = companies.filter((company) => isFirstContractInRange(company, eventMaps, range));
   const validContractCount = contractCompanies.filter((company) => company.leadValidity === "有効").length;
-  const lostCompanies = scopeCompanies.filter((company) =>
-    isInRange(eventMaps.firstLostByStpCompanyId.get(company.id)?.recordedAt, range)
+  const lostCompanies = companies.filter((company) =>
+    isInRange(eventMaps.latestLostByStpCompanyId.get(company.id)?.recordedAt, range)
   );
 
   return {
@@ -554,7 +564,7 @@ function buildCurrentResult({
       },
     ],
     dwellTimes: buildDwellTimes(scopeCompanies, stages, eventMaps),
-    lostReasons: buildLostReasons(lostCompanies),
+    lostReasons: buildLostReasons(lostCompanies, eventMaps),
   };
 }
 
@@ -635,10 +645,16 @@ function buildDwellTimes(
   return rows;
 }
 
-function buildLostReasons(companies: StpCompanyRecord[]): LostReasonResult[] {
+function buildLostReasons(companies: StpCompanyRecord[], eventMaps: EventMaps): LostReasonResult[] {
   const counts = new Map<string, number>();
   for (const company of companies) {
-    const label = company.lostReasonOption?.name || company.lostReason?.trim() || "未選択";
+    const lostEvent = eventMaps.latestLostByStpCompanyId.get(company.id);
+    const label =
+      lostEvent?.lostReasonOptionName ||
+      lostEvent?.lostReason?.trim() ||
+      company.lostReasonOption?.name ||
+      company.lostReason?.trim() ||
+      "未選択";
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
   const total = companies.length;
